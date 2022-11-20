@@ -222,7 +222,14 @@ def run_server(host, port, workers=1, ssl_keyfile=None, ssl_certfile=None):
         ('grpc.max_send_message_length', msg_max_size),
         ('grpc.max_receive_message_length', msg_max_size)
     ]
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=workers), options=options)
+
+    interceptors = tuple()
+    if os.getenv('AIM_ENABLE_AUTH'):
+        from .server_auth_interceptor import ServerAuthInterceptor
+        interceptors = (ServerAuthInterceptor(),)
+
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=workers), interceptors=interceptors, options=options)
+
     remote_tracking_pb2_grpc.add_RemoteTrackingServiceServicer_to_server(RemoteTrackingServicer(), server)
 
     if ssl_keyfile and ssl_certfile:

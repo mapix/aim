@@ -49,8 +49,31 @@ class Client:
             with open(ssl_certfile, 'rb') as f:
                 root_certificates = grpc.ssl_channel_credentials(f.read())
             self._remote_channel = grpc.secure_channel(remote_path, root_certificates, options=options)
+        elif os.getenv('AIM_FORCE_PUBLIC_CERT') == 'true':
+            self._remote_channel = grpc.secure_channel(remote_path, grpc.ssl_channel_credentials(), options=options)
         else:
             self._remote_channel = grpc.insecure_channel(remote_path, options=options)
+
+        need_auth = True
+        auth_info = None
+        if os.getenv('AIM_ACCESS_TOKEN'):
+            auth_info = 'Bearer {}'.format(os.getenv('AIM_ACCESS_TOKEN'))
+        elif os.getenv('AIM_ACCESS_USERNAME') and os.getenv('AIM_ACCESS_PASSWORD'):
+            from base64 import b64encode
+            auth_info = 'Basic {}'.format(
+                    b64encode('{}:{}'.format(os.getenv('AIM_ACCESS_USERNAME'), os.getenv('AIM_ACCESS_PASSWORD')).encode('utf-8')
+                    ).decode('utf-8'))
+        elif os.getenv('AIM_ACCESS_CREDENTIAL'):
+            auth_info = os.getenv('AIM_ACCESS_CREDENTIAL')
+        else:
+            need_auth = False
+
+        if need_auth:
+            from .client_auth_interceptor import client_auth_interceptor
+            header_adder_interceptor = client_auth_interceptor(auth_info)
+            self._remote_channel = grpc.intercept_channel(self._remote_channel,  header_adder_interceptor)
+        else:
+            self._remote_channel = self._remote_channel
 
         self._remote_stub = remote_tracking_pb2_grpc.RemoteTrackingServiceStub(self._remote_channel)
         self._heartbeat_sender = RPCHeartbeatSender(self)
