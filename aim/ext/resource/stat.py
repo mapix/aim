@@ -1,5 +1,6 @@
 import psutil
 import json
+import os
 from typing import List
 
 from aim.ext.resource.utils import round10e5
@@ -132,7 +133,7 @@ class Stat(object):
         # net = psutil.net_io_counters()
         system = {
             # CPU utilization percent(can be over 100%)
-            'cpu': round10e5(self._process.cpu_percent(0.0)),
+            'cpu': psutil.cpu_percent(0.0) if os.getenv('AIM_GLOBAL_CPU_PERCENTAGE') == 'true' else round10e5(self._process.cpu_percent(0.0)),
 
             # Whole system memory usage
             # 'memory_used': round10e5(memory_usage.used / 1024 / 1024),
