@@ -36,7 +36,11 @@ class RPCServer:
         import grpc  # temporary workaround for M1 build
 
         self._resources: Optional[RPCServerAutoClean] = None
-        self._server = grpc.server(futures.ThreadPoolExecutor(), options=self._get_grpc_server_options())
+        interceptors = tuple()
+        if os.getenv('AIM_ENABLE_AUTH'):
+            from .server_auth_interceptor import ServerAuthInterceptor
+            interceptors = (ServerAuthInterceptor(),)
+        self._server = grpc.server(futures.ThreadPoolExecutor(), interceptors=interceptors, options=self._get_grpc_server_options())
         self.resource = RPCServerAutoClean(self)
 
     def start(self, host, port, ssl_keyfile, ssl_certfile):

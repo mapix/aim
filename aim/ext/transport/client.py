@@ -72,12 +72,10 @@ class Client:
             with open(ssl_certfile, 'rb') as f:
                 root_certificates = grpc.ssl_channel_credentials(f.read())
             self._remote_router_channel = grpc.secure_channel(self.remote_path, root_certificates, options=options)
+        elif os.getenv('AIM_FORCE_PUBLIC_CERT') == 'true':
+            self._remote_router_channel = grpc.secure_channel(self.remote_path, grpc.ssl_channel_credentials(), options=options)
         else:
             self._remote_router_channel = grpc.insecure_channel(self.remote_path, options=options)
-        self._remote_router_stub = remote_router_pb2_grpc.RemoteRouterServiceStub(self._remote_router_channel)
-
-        # check client/server version compatibility
-        self._check_remote_version_compatibility()
 
         # get the available worker address
         self._remote_worker_address = self._get_worker_address()
@@ -85,7 +83,8 @@ class Client:
         # if we got the same address as the router, there's no need to open new channels
         if self._remote_worker_address == self.remote_path:
             self._remote_channel = self._remote_router_channel
-
+        elif os.getenv('AIM_FORCE_PUBLIC_CERT') == 'true':
+            self._remote_channel = grpc.secure_channel(self._remote_worker_address, grpc.ssl_channel_credentials(), options=options)
         else:
             # open a channel with worker for further communication
             if ssl_certfile:
@@ -95,6 +94,33 @@ class Client:
             else:
                 self._remote_channel = grpc.insecure_channel(self._remote_worker_address, options=options)
 
+        need_auth = True
+        auth_info = None
+        if os.getenv('AIM_ACCESS_TOKEN'):
+            auth_info = 'Bearer {}'.format(os.getenv('AIM_ACCESS_TOKEN'))
+        elif os.getenv('AIM_ACCESS_USERNAME') and os.getenv('AIM_ACCESS_PASSWORD'):
+            from base64 import b64encode
+            auth_info = 'Basic {}'.format(
+                    b64encode('{}:{}'.format(os.getenv('AIM_ACCESS_USERNAME'), os.getenv('AIM_ACCESS_PASSWORD')).encode('utf-8')
+                    ).decode('utf-8'))
+        elif os.getenv('AIM_ACCESS_CREDENTIAL'):
+            auth_info = os.getenv('AIM_ACCESS_CREDENTIAL')
+        else:
+            need_auth = False
+
+        if need_auth:
+            from .client_auth_interceptor import client_auth_interceptor
+            header_adder_interceptor = client_auth_interceptor(auth_info)
+            self._remote_router_channel = grpc.intercept_channel(self._remote_channel,  header_adder_interceptor)
+            if self._remote_worker_address == self.remote_path:
+                self._remote_channel = self._remote_router_channel
+            else:
+                self._remote_channel = grpc.intercept_channel(self._remote_channel,  header_adder_interceptor)
+
+        self._remote_router_stub = remote_router_pb2_grpc.RemoteRouterServiceStub(self._remote_router_channel)
+
+        # check client/server version compatibility
+        self._check_remote_version_compatibility()
         self._remote_stub = remote_tracking_pb2_grpc.RemoteTrackingServiceStub(self._remote_channel)
 
     def reinitialize_resource(self, handler):
@@ -149,19 +175,7 @@ class Client:
         return f'{worker_host}:{worker_port}'
 
     def _get_worker_port(self):
-        request = router_messages.ConnectRequest(
-            client_uri=self.uri
-        )
-        response = self._remote_router_stub.connect(request, metadata=[('x-client', self.uri)])
-        if response.status == router_messages.ConnectResponse.Status.ERROR:
-            raise_exception(response.exception)
-        try:
-            router_port = int(self._remote_path.rsplit(':', maxsplit=1)[1])
-            port_offset = int(response.worker_index)
-            worker_port = router_port + port_offset
-            return worker_port
-        except Exception:
-            return response.port
+        return int(self._remote_path.rsplit(':', maxsplit=1)[1])
 
     def client_heartbeat(self):
         request = router_messages.HeartbeatRequest(
