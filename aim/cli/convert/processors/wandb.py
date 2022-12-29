@@ -64,8 +64,8 @@ def parse_wandb_logs(repo_inst, entity, project, run_id):
         for tag in run.tags:
             aim_run.add_tag(tag)
 
-        keys = [key for key in run.history(stream='default').keys()
-                if not key.startswith('_')]
+        from pprint import pprint
+        keys = [key for key in run.history(stream='default').keys() if not key.startswith('_')]
 
         # Collect metrics
         for record in run.scan_history():

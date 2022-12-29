@@ -9,7 +9,7 @@ with open(version_file) as vf:
     __version__ = vf.read().strip()
 
 # Package meta-data.
-NAME = 'aim-ui'
+NAME = 'aim-ui-custom'
 DESCRIPTION = 'Aim UI'
 VERSION = __version__
 

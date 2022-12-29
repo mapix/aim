@@ -17,7 +17,7 @@ with open(version_file) as vf:
 here = os.path.abspath(os.path.dirname(__file__))
 
 # Package meta-data.
-NAME = 'aim'
+NAME = 'aim-with-auth-support'
 DESCRIPTION = 'A super-easy way to record, search and compare AI experiments.'
 VERSION = __version__
 REQUIRES_PYTHON = '>=3.6.0'
@@ -50,7 +50,7 @@ SETUP_REQUIRED = [
 
 # What packages are required for this module to be executed?
 REQUIRED = [
-    f'aim-ui=={__version__}',
+    f'aim-ui-custom==3.15.2.post4',
     'aimrecords==0.0.7',
     'aimrocks==0.2.1',
     'cachetools>=4.0.0',
