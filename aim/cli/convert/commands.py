@@ -13,17 +13,15 @@ from aim.cli.convert.processors import (
 
 
 @click.group()
-@click.option('--repo', required=False, type=click.Path(exists=True,
-                                                        file_okay=False,
-                                                        dir_okay=True,
-                                                        writable=True))
+@click.option('--repo', required=False, type=str)
 @click.pass_context
 def convert(ctx, repo):
     ctx.ensure_object(dict)
-
-    repo_path = clean_repo_path(repo) or Repo.default_repo_path()
-    repo_inst = Repo.from_path(repo_path)
-
+    if repo and (not repo.startswith('aim:')):
+        repo_path = clean_repo_path(repo) or Repo.default_repo_path()
+        repo_inst = Repo.from_path(repo_path)
+    else:
+        repo_inst = repo
     ctx.obj['repo_inst'] = repo_inst
 
 

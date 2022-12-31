@@ -1,11 +1,14 @@
 from pathlib import Path
 import re
+import os.path
+import json 
 from tempfile import TemporaryDirectory
+from pathlib import Path
 
 import click
 from tqdm import tqdm
 
-from aim import Run
+from aim import Run, Distribution, Text, Figure
 from aim.ext.resource.log import LogLine
 from aim.ext.resource.configs import AIM_RESOURCE_METRIC_PREFIX
 
@@ -13,6 +16,8 @@ from aim.ext.resource.configs import AIM_RESOURCE_METRIC_PREFIX
 def parse_wandb_logs(repo_inst, entity, project, run_id):
     try:
         import wandb
+        from wandb_gql import gql
+        from datauri import DataURI
     except ImportError:
         click.echo("Could not process wandb logs - failed to import 'wandb' module.", err=True)
         return
@@ -32,8 +37,6 @@ def parse_wandb_logs(repo_inst, entity, project, run_id):
         runs = (run,)
 
     for run in tqdm(runs, desc="Converting wandb logs"):
-        if not run.config.items():
-            continue
         aim_run = Run(
             repo=repo_inst,
             system_tracking_interval=None,
@@ -44,6 +47,70 @@ def parse_wandb_logs(repo_inst, entity, project, run_id):
         aim_run['wandb_run_name'] = run.name
         aim_run.description = run.notes
 
+        # Convert Rich Artifacts (Table & Molecule & Plotly & Histogram)
+        with TemporaryDirectory() as tmpdirname:
+            for step_record in tqdm(run.history(pandas=False), desc='convert rich steps'):
+                step = step_record['_step']
+                for k, v in step_record.items():
+                    if not isinstance(v, (list, dict)):
+                        continue
+                    rs = v if isinstance(v, list) else [v]
+                    for r in rs:
+                        if r['_type'] == 'histogram':
+                            d = Distribution(hist=r['values'], bin_count=len(r['bins']), bin_range=(r['bins'][0], r['bins'][-1]))                                                                                          
+                            aim_run.track(d, name=k, step=step)
+                        elif r['_type'] == 'plotly-file' or 'plotly.json' in r['path']:
+                            path = r['path']
+                            run.file(path).download(root=tmpdirname) 
+                            from plotly.io import read_json                 
+                            figure = read_json(Path(tmpdirname) / path)
+                            aim_run.track(Figure(figure), name=k, step=step)   
+                        elif r['_type'] == 'table-file':
+                            seq_id = v['_latest_artifact_path'].split('/', maxsplit=3)[2].split(':')[0]
+                            table_file_name = v['_latest_artifact_path'].split('/')[-1]
+                            query = """
+                            query ResolveLatestSequenceAliasToArtifactId($sequenceId: ID!) {
+                            artifactSequence(id: $sequenceId) {
+                                latestArtifact {
+                                id
+                                __typename
+                                }
+                                __typename
+                            }
+                            }
+                            """
+                            artifacts = {i.id: i for i in run.logged_artifacts()}
+                            r = run.client.execute(gql(query), {'sequenceId': seq_id})
+                            artifact_id = r['artifactSequence']['latestArtifact']['id']
+                            artifact = artifacts[artifact_id]
+                            prefix = os.path.join(tmpdirname, artifact.name)
+                            artifact.download(prefix)
+                            table_file = os.path.join(prefix, table_file_name)
+                            with open(table_file) as f:
+                                table = json.load(f)
+                            for row in table['data']:
+                                for index, ele in enumerate(row):
+                                    if not isinstance(ele, dict):
+                                        continue
+                                    if ele.get('_type') == 'image-file':
+                                        embeded_image_file = os.path.join(prefix, ele['path'])
+                                        image_uri = DataURI.from_file(embeded_image_file)
+                                        row[index] = str(image_uri)
+                                    elif ele.get('_type') == 'molecule-file':
+                                        embeded_molecule_file = os.path.join(prefix, ele['path'])
+                                        dtype = Path(embeded_molecule_file).suffix.lstrip('.')
+                                        with open(embeded_molecule_file) as f:
+                                            row[index] = f'data:text/{dtype},{f.read()}'
+                            table_content = json.dumps(table)
+                            aim_run.track(Text(f'data:text/table,{table_content}'), name=k, step=step)  
+                        elif r['_type'] == 'molecule-file':
+                            path = r['path']
+                            run.file(path).download(root=tmpdirname)
+                            with open(Path(tmpdirname) / path) as f:
+                                molecule_content = f.read()
+                            dtype = Path(path).suffix.lstrip('.')
+                            aim_run.track(Text(f'data:text/{dtype},{molecule_content}'), name=k, step=step)  
+        
         with TemporaryDirectory() as tmpdirname:
             # Collect console output logs
             console_log_filename = 'output.log'
@@ -95,7 +162,8 @@ def parse_wandb_logs(repo_inst, entity, project, run_id):
                     else:
                         aim_run.track(value, name=name, step=step, epoch=epoch, context=context)
                 except ValueError:
-                    click.echo(f"Type '{type(value).__name__}': artifacts are not supported yet.", err=True)
+                    pass
+                    #click.echo(f"Type '{type(value).__name__}': artifacts are not supported yet.", err=True)
 
         # Collect system logs
         # NOTE: In 'system' logs, collecting sampled history cannot be avoided. (default 'samples' == 500)
@@ -121,7 +189,8 @@ def parse_wandb_logs(repo_inst, entity, project, run_id):
                     else:
                         aim_run.track(value, name=f'{AIM_RESOURCE_METRIC_PREFIX}{name}', context=context)
                 except ValueError:
-                    click.echo(f"Type '{type(value).__name__}': artifacts are not supported yet.", err=True)
+                    pass
+                    #click.echo(f"Type '{type(value).__name__}': artifacts are not supported yet.", err=True)
 
 
 def _normalize_system_metric_key(key):

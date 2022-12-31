@@ -166,7 +166,7 @@ class Client:
             raise RuntimeError(error_message_template.format(remote_version, client_version))
 
         # for other mismatching versions throw a warning for now
-        logger.warning(warning_message_template.format(remote_version, client_version))
+        #logger.warning(warning_message_template.format(remote_version, client_version))
         # further incompatibility list will be added manually
 
     def _get_worker_address(self):
