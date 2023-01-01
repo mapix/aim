@@ -13,6 +13,8 @@ import { ITextsVisualizerProps } from '../types';
 
 import './TextsVisualizer.scss';
 
+var parseDataUri = require('parse-data-uri');
+
 const MyFullScreen = (props: any) => {
   const handler = useFullScreenHandle();
   return (
@@ -28,6 +30,33 @@ const MyFullScreen = (props: any) => {
       </FullScreen>
     </>
   );
+};
+
+function dataurlToBlobUrl(url: any) {
+  var parts = url.split(',', 2);
+  var mime = parts[0].substr(5).split(';')[0];
+  var blob = b64toBlob(parts[1], mime);
+  return URL.createObjectURL(blob);
+}
+
+const b64toBlob = (b64Data: any, contentType = '', sliceSize = 512) => {
+  const byteCharacters = atob(b64Data);
+  const byteArrays = [];
+
+  for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+    const slice = byteCharacters.slice(offset, offset + sliceSize);
+
+    const byteNumbers = new Array(slice.length);
+    for (let i = 0; i < slice.length; i++) {
+      byteNumbers[i] = slice.charCodeAt(i);
+    }
+
+    const byteArray = new Uint8Array(byteNumbers);
+    byteArrays.push(byteArray);
+  }
+
+  const blob = new Blob(byteArrays, { type: contentType });
+  return blob;
 };
 
 function is_all_custom_data(rs: any): Boolean {
@@ -77,6 +106,43 @@ function html_escape(html: string) {
   return result;
 }
 
+function render_raw_moleculer_iframe(content: string) {
+  const dtype = content.substring(0, content.indexOf(',')).split('/')[1];
+  content = content.substring(content.indexOf(',') + 1);
+  const html: string =
+    `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  </head>
+  <body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ngl/2.0.2/ngl.js"></script>
+    <script>
+      var stage;
+      function toggleFullscreen() {
+        stage.toggleFullscreen();
+      }
+      var stringBlob = new Blob([decodeURIComponent("` +
+    encodeURIComponent(encodeURIComponent(content)) +
+    `")], { type: 'text/plain'} );
+      document.addEventListener("DOMContentLoaded", function () {
+        stage = new NGL.Stage("viewport", { backgroundColor: "black" } );
+        stage.loadFile( stringBlob, {defaultRepresentation: true, ext: "` +
+    dtype +
+    `"});
+        stage.setSpin(true);
+      });
+    </script>
+    <button onclick="toggleFullscreen()" style="right: 50%;z-index: 100;"><span>Enter Full-Screen Mode</span></button>
+    <div style="width:100%; height:300px;">
+      <div id="viewport" style="width:100%; height:100%;"></div>
+    </div>
+  </body>
+  </html>`;
+  return html;
+}
+
 function render_large_table_data(data: any) {
   var html: string = `data:text/html,<html>
   <head>
@@ -97,7 +163,26 @@ function render_large_table_data(data: any) {
   for (var i = 0; i < data.data.length; i++) {
     html += '<tr>';
     for (var j = 0; j < data.data[i].length; j++) {
-      html += '<td>' + html_escape(data.data[i][j]) + '</td>';
+      if (
+        data.data[i][j] &&
+        data.data[i][j].toString().startsWith('data:image/')
+      ) {
+        const url = dataurlToBlobUrl(data.data[i][j]);
+        html += '<td><img src="' + url + '" height="80px" width="80px"></td>';
+      } else if (
+        data.data[i][j] &&
+        data.data[i][j].toString().startsWith('data:text/')
+      ) {
+        html +=
+          '<td><iframe src="data:text/html;charset=utf-8,' +
+          html_escape(render_raw_moleculer_iframe(data.data[i][j])) +
+          '" loading="lazy" allow="fullscreen" width="400px" height="300px" style="border: 0"/></td>';
+      } else {
+        html +=
+          '<td>' +
+          (data.data[i][j] ? html_escape(data.data[i][j]) : '') +
+          '</td>';
+      }
     }
     html += '</tr>';
   }
@@ -121,10 +206,10 @@ function render_table_data(content: string) {
   try {
     data = JSON.parse(content);
   } catch (e) {
-    console.log(e);
     return null;
   }
-  if (data.columns.length > 50) {
+  if (data.columns.length > 0) {
+    console.log(data);
     return render_large_table_data(data);
   }
   const columns: MRT_ColumnDef<any>[] = data?.columns.map((name: string) => ({
@@ -142,6 +227,7 @@ function render_table_data(content: string) {
       columns={columns}
       data={records}
       enableFullScreenToggle={true}
+      enableRowVirtualization={true}
     />
   );
 }
@@ -236,7 +322,7 @@ function render_html_data(content: string, autoFullScreenBtn: Boolean) {
   content = content.substring('data:text/html,'.length);
   const elem = (
     <Iframe
-      url={'data:text/html,' + encodeURIComponent(content)}
+      url={'data:text/html;charset=utf-8,' + encodeURIComponent(content)}
       width='100%'
       height='100%'
       loading='lazy'
