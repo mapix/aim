@@ -27,7 +27,7 @@ def upload_artifacts(repo_inst, run, source):
     elif os.getenv('AIM_ACCESS_CREDENTIAL'):
         auth_info = os.getenv('AIM_ACCESS_CREDENTIAL')
     endpoint = repo_inst.replace('aim://', 'https://') if repo_inst else 'http://localhost:1024'
-    r = requests.post(f'{endpoint}/artifacts/upload/{run.experiment}/{run.hash} ', files=files, headers={'Authorization': auth_info})
+    r = requests.post(f'{endpoint}/artifacts/upload/{run.experiment}/{run.hash}', files=files, headers={'Authorization': auth_info})
     return r.json()['path']
     
 
