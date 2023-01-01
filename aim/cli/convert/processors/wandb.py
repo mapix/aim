@@ -13,6 +13,24 @@ from aim.ext.resource.log import LogLine
 from aim.ext.resource.configs import AIM_RESOURCE_METRIC_PREFIX
 
 
+def upload_artifacts(repo_inst, run, source):
+    import requests
+    files = {'file': open(source,'rb')}
+    auth_info = None
+    if os.getenv('AIM_ACCESS_TOKEN'):
+        auth_info = 'Bearer {}'.format(os.getenv('AIM_ACCESS_TOKEN'))
+    elif os.getenv('AIM_ACCESS_USERNAME') and os.getenv('AIM_ACCESS_PASSWORD'):
+        from base64 import b64encode
+        auth_info = 'Basic {}'.format(
+                b64encode('{}:{}'.format(os.getenv('AIM_ACCESS_USERNAME'), os.getenv('AIM_ACCESS_PASSWORD')).encode('utf-8')
+                ).decode('utf-8'))
+    elif os.getenv('AIM_ACCESS_CREDENTIAL'):
+        auth_info = os.getenv('AIM_ACCESS_CREDENTIAL')
+    endpoint = repo_inst.replace('aim://', 'https://') if repo_inst else 'http://localhost:1024'
+    r = requests.post(f'{endpoint}/artifacts/upload/{run.experiment}/{run.hash} ', files=files, headers={'Authorization': auth_info})
+    return r.json()['path']
+    
+
 def parse_wandb_logs(repo_inst, entity, project, run_id):
     import wandb
     from wandb_gql import gql
@@ -97,22 +115,17 @@ def parse_wandb_logs(repo_inst, entity, project, run_id):
                                         continue
                                     if ele.get('_type') == 'image-file':
                                         embeded_image_file = os.path.join(prefix, ele['path'])
-                                        image_uri = DataURI.from_file(embeded_image_file)
-                                        row[index] = str(image_uri)
+                                        ele['path'] = upload_artifacts(repo_inst, aim_run, embeded_image_file)
                                     elif ele.get('_type') == 'molecule-file':
                                         embeded_molecule_file = os.path.join(prefix, ele['path'])
-                                        dtype = Path(embeded_molecule_file).suffix.lstrip('.')
-                                        with open(embeded_molecule_file) as f:
-                                            row[index] = f'data:text/{dtype},{f.read()}'
+                                        ele['path'] = upload_artifacts(repo_inst, aim_run, embeded_molecule_file)
                             table_content = json.dumps(table)
                             aim_run.track(Text(f'data:text/table,{table_content}'), name=k, step=step)  
                         elif r['_type'] == 'molecule-file':
                             path = r['path']
                             run.file(path).download(root=tmpdirname)
-                            with open(Path(tmpdirname) / path) as f:
-                                molecule_content = f.read()
-                            dtype = Path(path).suffix.lstrip('.')
-                            aim_run.track(Text(f'data:text/{dtype},{molecule_content}'), name=k, step=step)  
+                            artifact_path = upload_artifacts(repo_inst, aim_run, Path(tmpdirname) / path)
+                            aim_run.track(Text(f'data:text/molecule-file-url,{artifact_path}'), name=k, step=step)  
         
         with TemporaryDirectory() as tmpdirname:
             # Collect console output logs

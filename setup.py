@@ -50,7 +50,7 @@ SETUP_REQUIRED = [
 
 # What packages are required for this module to be executed?
 REQUIRED = [
-    f'aim-ui-custom==3.15.2.post8',
+    f'aim-ui-custom=={VERSION}',
     'aimrecords==0.0.7',
     'aimrocks==0.2.1',
     'cachetools>=4.0.0',

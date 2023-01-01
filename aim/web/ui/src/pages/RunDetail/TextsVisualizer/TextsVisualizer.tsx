@@ -172,6 +172,7 @@ function is_moleculer_data(content: string): Boolean {
   molecular_types.add('data:text/sdf');
   molecular_types.add('data:text/pdbqt');
   molecular_types.add('data:text/mol2');
+  molecular_types.add('data:text/molecule-file-url');
   return molecular_types.has(content.split(',', 1)[0]);
 }
 
@@ -197,13 +198,27 @@ function html_escape(html: string) {
   return result;
 }
 
-function render_raw_moleculer_iframe(content: string) {
-  const dtype = content.substring(0, content.indexOf(',')).split('/')[1];
-  content = content.substring(content.indexOf(',') + 1);
-  var blob = new Blob([content], {
-    type: 'text/plain',
-  });
-  const url = URL.createObjectURL(blob);
+function render_raw_moleculer_iframe(content: any) {
+  var url: any;
+  var dtype: any;
+  const host = window.location.protocol + '//' + window.location.host;
+  if (typeof content === 'object') {
+    url = host + '/artifacts/' + content['path'];
+    dtype = url.split('.').pop();
+  } else if (content.startsWith('data:text/molecule-file-url,')) {
+    url =
+      host +
+      '/artifacts/' +
+      content.substring('data:text/molecule-file-url,'.length);
+    dtype = url.split('.').pop();
+  } else {
+    dtype = content.substring(0, content.indexOf(',')).split('/')[1];
+    content = content.substring(content.indexOf(',') + 1);
+    var blob = new Blob([content], {
+      type: 'text/plain',
+    });
+    url = URL.createObjectURL(blob);
+  }
   const html: string =
     `<!DOCTYPE html>
   <html lang="en">
@@ -276,14 +291,24 @@ function render_table_data(content: any) {
   }
   html += '</tr></thead>';
   html += '<tbody>';
+  console.log(data.data);
   for (var i = 0; i < data.data.length; i++) {
     html += '<tr>';
     for (var j = 0; j < data.data[i].length; j++) {
+      const content = data.data[i][j] ? data.data[i][j].toString() : '';
+      var json_content: any = undefined;
+      const host = window.location.protocol + '//' + window.location.host;
+      if (typeof data.data[i][j] === 'object') {
+        json_content = data.data[i][j];
+      }
       if (
-        data.data[i][j] &&
-        data.data[i][j].toString().startsWith('data:image/')
+        (json_content && json_content['_type'] === 'image-file') ||
+        content.startsWith('data:image/')
       ) {
-        const url = dataurlToBlobUrl(data.data[i][j]);
+        const url =
+          json_content && json_content['_type'] === 'image-file'
+            ? host + '/artifacts/' + json_content['path']
+            : dataurlToBlobUrl(data.data[i][j]);
         html +=
           `<td> <div style="position: relative;"><button class="fullscreen-button" onclick="go_fullscreen(this)">
         <span></span>
@@ -292,14 +317,17 @@ function render_table_data(content: any) {
         <span></span>
       </button><img src="` +
           url +
-          '" loading="lazy" height="200px" width="200px"></div></td>';
+          '" loading="lazy" height="200px"></div></td>';
       } else if (
-        data.data[i][j] &&
-        data.data[i][j].toString().startsWith('data:text/')
+        (json_content && json_content['_type'] === 'molecule-file') ||
+        content.startsWith('data:text/')
       ) {
-        var blob = new Blob([render_raw_moleculer_iframe(data.data[i][j])], {
-          type: 'text/html',
-        });
+        var blob = new Blob(
+          [render_raw_moleculer_iframe(json_content ? json_content : content)],
+          {
+            type: 'text/html',
+          },
+        );
         const url = URL.createObjectURL(blob);
         html +=
           '<td><iframe src="' +
@@ -340,7 +368,7 @@ function render_html_data(content: string) {
   });
   const url = URL.createObjectURL(blob);
   return (
-    <div style={{ height: '300px', position: 'relative' }}>
+    <div style={{ height: '600px', position: 'relative' }}>
       <MyFullScreen>
         <Iframe
           url={url}
