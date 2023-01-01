@@ -1,7 +1,5 @@
 import React from 'react';
 import Iframe from 'react-iframe';
-import Viewer from 'miew-react';
-import MaterialReactTable, { MRT_ColumnDef } from 'material-react-table';
 import { FullScreen, useFullScreenHandle } from 'react-full-screen';
 
 import ErrorBoundary from 'components/ErrorBoundary/ErrorBoundary';
@@ -13,17 +11,110 @@ import { ITextsVisualizerProps } from '../types';
 
 import './TextsVisualizer.scss';
 
-var parseDataUri = require('parse-data-uri');
+const fullScreenBtnCSS = `
+<style>
+body {
+  background: white;
+}
+.fullscreen-button {
+  position: absolute;
+  z-index: 100;
+  top:  5px;
+  right:  5px;
+  background: rgba(0,0,0,0.05);
+  border:  0;
+  width:  40px;
+  height:  40px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  transition:  transform .3s;
+  font-size: 0;
+  opacity: 1;
+  pointer-events: auto;
+  cursor:  pointer;
+}
+.fullscreen-button:hover {
+  transform: scale(1.125);
+}
+.fullscreen-button span {
+  background: white;
+  width:  4px;
+  height:  4px;
+  border-top:  2.5px solid #111; /* color */
+  border-left:  2.5px solid #111; /* color */
+  position: absolute;
+  outline: 1px solid transparent;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform;
+  -webkit-perspective: 1000;
+  transition:  .3s;
+  transition-delay: .75s;
+}
+.fullscreen-button span:nth-child(1) {
+  top: 11px;
+  left: 11px;
+}
+.fullscreen-button span:nth-child(2) {
+  top: 11px;
+  left: 22px;
+  transform: rotate(90deg);
+}
+.fullscreen-button span:nth-child(3) {
+  top: 22px;
+  left: 11px;
+  transform: rotate(-90deg);
+}
+.fullscreen-button span:nth-child(4) {
+  top: 22px;
+  left: 22px;
+  transform: rotate(-180deg);
+}
 
+/* Fullscreen True
+------------------------------*/
+[fullscreen] .fullscreen-button span:nth-child(1) {
+  top: 22px;
+  left: 22px;
+}
+[fullscreen] .fullscreen-button span:nth-child(2) {
+  top: 22px;
+  left: 11px;
+}
+[fullscreen] .fullscreen-button span:nth-child(3) {
+  top: 11px;
+  left: 22px;
+}
+[fullscreen] .fullscreen-button span:nth-child(4) {
+  top: 11px;
+  left: 11px;
+}
+
+/* Dark Style
+------------------------------*/
+[light-mode=dark] {
+  background: #111;
+  color:  #fff;
+}
+[light-mode=dark] .fullscreen-button {
+  background: rgba(255,255,255,.05);
+}
+
+[light-mode=dark] .fullscreen-button span {
+  border-top:  2.5px solid #fff;
+  border-left:  2.5px solid #fff;
+}
+</style>
+`;
 const MyFullScreen = (props: any) => {
   const handler = useFullScreenHandle();
   return (
     <>
-      <button
-        onClick={handler.enter}
-        style={{ zIndex: 99999, left: '55%', position: 'fixed' }}
-      >
-        Enter Full-Screen Mode
+      <button className='fullscreen-button' onClick={handler.enter}>
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
       </button>
       <FullScreen className='myfullscreen' handle={handler}>
         {props.children}
@@ -109,12 +200,19 @@ function html_escape(html: string) {
 function render_raw_moleculer_iframe(content: string) {
   const dtype = content.substring(0, content.indexOf(',')).split('/')[1];
   content = content.substring(content.indexOf(',') + 1);
+  var blob = new Blob([content], {
+    type: 'text/plain',
+  });
+  const url = URL.createObjectURL(blob);
   const html: string =
     `<!DOCTYPE html>
   <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+` +
+    fullScreenBtnCSS +
+    `
   </head>
   <body>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ngl/2.0.2/ngl.js"></script>
@@ -123,18 +221,22 @@ function render_raw_moleculer_iframe(content: string) {
       function toggleFullscreen() {
         stage.toggleFullscreen();
       }
-      var stringBlob = new Blob([decodeURIComponent("` +
-    encodeURIComponent(encodeURIComponent(content)) +
-    `")], { type: 'text/plain'} );
       document.addEventListener("DOMContentLoaded", function () {
-        stage = new NGL.Stage("viewport", { backgroundColor: "black" } );
-        stage.loadFile( stringBlob, {defaultRepresentation: true, ext: "` +
+        stage = new NGL.Stage("viewport", { backgroundColor: "white" } );
+        stage.loadFile("` +
+    url +
+    '", {defaultRepresentation: true, ext: "' +
     dtype +
     `"});
         stage.setSpin(true);
       });
     </script>
-    <button onclick="toggleFullscreen()" style="right: 50%;z-index: 100;"><span>Enter Full-Screen Mode</span></button>
+    <button class="fullscreen-button" onclick="toggleFullscreen()">
+      <span></span>
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
     <div style="width:100%; height:300px;">
       <div id="viewport" style="width:100%; height:100%;"></div>
     </div>
@@ -143,17 +245,31 @@ function render_raw_moleculer_iframe(content: string) {
   return html;
 }
 
-function render_large_table_data(data: any) {
-  var html: string = `data:text/html,<html>
+function render_table_data(content: any) {
+  content = content.substring('data:text/table,'.length);
+  var data: any;
+  try {
+    data = JSON.parse(content);
+  } catch (e) {
+    return null;
+  }
+  var html: string =
+    `data:text/html,<html>
   <head>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/datatables/1.10.21/js/jquery.dataTables.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/datatables/1.10.21/css/jquery.dataTables.min.css">
-  </head>
-  <div id="abc">
-  `;
+  <script src="https://code.jquery.com/jquery-3.5.1.js"></script>
+  <script src="https://cdn.datatables.net/1.13.1/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.1/js/dataTables.bootstrap5.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.2.0/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.1/css/dataTables.bootstrap5.min.css">
+  ` + fullScreenBtnCSS;
 
-  html += '<table class="dataframe">';
+  html += `</head><script>
+  function go_fullscreen(elem){
+    elem.nextSibling.requestFullscreen();
+    return false;
+  }
+  </script>`;
+  html += '<table class="table table-striped" style="width:100%">';
   html += '<thead><tr>';
   for (var i = 0; i < data.columns.length; i++) {
     html += '<th>' + html_escape(data.columns[i]) + '</th>';
@@ -168,19 +284,31 @@ function render_large_table_data(data: any) {
         data.data[i][j].toString().startsWith('data:image/')
       ) {
         const url = dataurlToBlobUrl(data.data[i][j]);
-        html += '<td><img src="' + url + '" height="80px" width="80px"></td>';
+        html +=
+          `<td> <div style="position: relative;"><button class="fullscreen-button" onclick="go_fullscreen(this)">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+      </button><img src="` +
+          url +
+          '" loading="lazy" height="200px" width="200px"></div></td>';
       } else if (
         data.data[i][j] &&
         data.data[i][j].toString().startsWith('data:text/')
       ) {
+        var blob = new Blob([render_raw_moleculer_iframe(data.data[i][j])], {
+          type: 'text/html',
+        });
+        const url = URL.createObjectURL(blob);
         html +=
-          '<td><iframe src="data:text/html;charset=utf-8,' +
-          html_escape(render_raw_moleculer_iframe(data.data[i][j])) +
-          '" loading="lazy" allow="fullscreen" width="400px" height="300px" style="border: 0"/></td>';
+          '<td><iframe src="' +
+          url +
+          '" loading="lazy" allow="fullscreen" width="200px" height="200px" style="border: 0; color: white;"></iframe></td>';
       } else {
         html +=
           '<td>' +
-          (data.data[i][j] ? html_escape(data.data[i][j]) : '') +
+          (data.data[i][j] ? html_escape(data.data[i][j].toString()) : '') +
           '</td>';
       }
     }
@@ -192,150 +320,44 @@ function render_large_table_data(data: any) {
   <div>
 <script>
 $(document).ready(function () {
-    $('.dataframe').DataTable();
+    $('table').DataTable();
 });
 </script>
 </html>
   `;
-  return render_html_data(html, true);
-}
-
-function render_table_data(content: string) {
-  content = content.substring('data:text/table,'.length);
-  var data: any;
-  try {
-    data = JSON.parse(content);
-  } catch (e) {
-    return null;
-  }
-  if (data.columns.length > 0) {
-    console.log(data);
-    return render_large_table_data(data);
-  }
-  const columns: MRT_ColumnDef<any>[] = data?.columns.map((name: string) => ({
-    accessorKey: name,
-    header: name,
-  }));
-  const records = data.data.map((rs: any) =>
-    data.columns.reduce((d: any, column: string, i: number) => {
-      d[column] = rs[i];
-      return d;
-    }, {}),
-  );
-  return (
-    <MaterialReactTable
-      columns={columns}
-      data={records}
-      enableFullScreenToggle={true}
-      enableRowVirtualization={true}
-    />
-  );
-}
-
-function init_miew(content: string, dtype: string) {
-  function x(miew: any): void {
-    miew.run();
-    try {
-      miew.load(content, {
-        sourceType: 'immediate',
-        fileType: dtype,
-        keepRepsInfo: true,
-      });
-    } catch (e) {
-      console.log(e);
-    }
-  }
-  return x;
+  return render_html_data(html);
 }
 
 function render_moleculer_data(content: string) {
-  const dtype = content.substring(0, content.indexOf(',')).split('/')[1];
-  content = content.substring(content.indexOf(',') + 1);
-  try {
-    return (
-      <div style={{ height: '300px', position: 'relative' }}>
-        <MyFullScreen>
-          <Viewer
-            onInit={init_miew(content, dtype)}
-            options={{
-              settings: {
-                ao: true,
-                aromatic: true,
-                fps: true,
-                fxaa: true,
-                outline: true,
-                fox: true,
-                autobuild: true,
-                editing: true,
-                interpolateViews: false,
-                zSprite: true,
-              },
-            }}
-          />
-        </MyFullScreen>
-      </div>
-    );
-  } catch (e) {
-    console.log(e);
-  }
+  const html = render_raw_moleculer_iframe(content);
+  return render_html_data(html);
 }
 
-function render_moleculer_data2(content: string) {
-  const dtype = content.substring(0, content.indexOf(',')).split('/')[1];
-  content = content.substring(content.indexOf(',') + 1);
-  const html: string =
-    `data:text/html,<!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <title>NGL - embedded</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-  </head>
-  <body>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ngl/2.0.2/ngl.js"></script>
-    <script>
-      var stage;
-      function toggleFullscreen() {
-        stage.toggleFullscreen();
-      }
-      var stringBlob = new Blob([decodeURIComponent("` +
-    encodeURIComponent(content) +
-    `")], { type: 'text/plain'} );
-      document.addEventListener("DOMContentLoaded", function () {
-        stage = new NGL.Stage("viewport", { backgroundColor: "black" } );
-        stage.loadFile( stringBlob, {defaultRepresentation: true, ext: "` +
-    dtype +
-    `"});
-        stage.setSpin(true);
-      });
-    </script>
-    <button onclick="toggleFullscreen()" style="position: fixed;top: 0;right: 50%;z-index: 100;"><span>Enter Full-Screen Mode</span></button>
-    <div style="width:100%; height:300px;">
-      <div id="viewport" style="width:100%; height:100%;"></div>
-    </div>
-  </body>
-  </html>`;
-  return render_html_data(html, false);
-}
-
-function render_html_data(content: string, autoFullScreenBtn: Boolean) {
+function render_html_data(content: string) {
   content = content.substring('data:text/html,'.length);
-  const elem = (
-    <Iframe
-      url={'data:text/html;charset=utf-8,' + encodeURIComponent(content)}
-      width='100%'
-      height='100%'
-      loading='lazy'
-      className=''
-      display='block'
-      position='relative'
-      allowFullScreen={true}
-      styles={{ border: '1px solid #FFA630', backgroudColor: '#fff' }}
-    />
-  );
+  var blob = new Blob([content], {
+    type: 'text/html',
+  });
+  const url = URL.createObjectURL(blob);
   return (
     <div style={{ height: '300px', position: 'relative' }}>
-      {autoFullScreenBtn ? <MyFullScreen>{elem}</MyFullScreen> : elem}
+      <MyFullScreen>
+        <Iframe
+          url={url}
+          width='100%'
+          height='100%'
+          loading='lazy'
+          className=''
+          display='block'
+          position='relative'
+          allowFullScreen={true}
+          styles={{
+            border: '1px solid rgb(233 232 231)',
+            backgroudColor: '#fff',
+            padding: '20px',
+          }}
+        />
+      </MyFullScreen>
     </div>
   );
 }
@@ -382,16 +404,18 @@ function TextsVisualizer(
         {is_all_custom_data(props?.data?.processedValues) ? (
           (props?.data?.processedValues || []).reverse().map((object: any) => (
             <div key={'custom-resource-' + object.step}>
-              <span>{object.step}</span>
-              {is_moleculer_data(object.text)
-                ? render_moleculer_data2(object.text)
-                : null}
-              {is_table_data(object.text)
-                ? render_table_data(object.text)
-                : null}
-              {is_html_data(object.text)
-                ? render_html_data(object.text, true)
-                : null}
+              <section>
+                <p>Step {object.step}</p>
+                {is_moleculer_data(object.text)
+                  ? render_moleculer_data(object.text)
+                  : null}
+                {is_table_data(object.text)
+                  ? render_table_data(object.text)
+                  : null}
+                {is_html_data(object.text)
+                  ? render_html_data(object.text)
+                  : null}
+              </section>
             </div>
           ))
         ) : (
