@@ -14,13 +14,9 @@ from aim.ext.resource.configs import AIM_RESOURCE_METRIC_PREFIX
 
 
 def parse_wandb_logs(repo_inst, entity, project, run_id):
-    try:
-        import wandb
-        from wandb_gql import gql
-        from datauri import DataURI
-    except ImportError:
-        click.echo("Could not process wandb logs - failed to import 'wandb' module.", err=True)
-        return
+    import wandb
+    from wandb_gql import gql
+    from datauri import DataURI
 
     client = wandb.Api()
 
@@ -33,7 +29,7 @@ def parse_wandb_logs(repo_inst, entity, project, run_id):
             run = client.run(f"{entity}/{project}/{run_id}")
         except Exception:
             click.echo(f"Could not find run '{entity}/{project}/{run_id}'", err=True)
-            return
+            raise
         runs = (run,)
 
     for run in tqdm(runs, desc="Converting wandb logs"):
@@ -56,8 +52,15 @@ def parse_wandb_logs(repo_inst, entity, project, run_id):
                         continue
                     rs = v if isinstance(v, list) else [v]
                     for r in rs:
-                        if r['_type'] == 'histogram':
-                            d = Distribution(hist=r['values'], bin_count=len(r['bins']), bin_range=(r['bins'][0], r['bins'][-1]))                                                                                          
+                        if r['_type'] == 'histogram': 
+                            if 'packedBins' in r:
+                                bin_count = r['packedBins']['count']
+                                bin_min = r['packedBins']['min']
+                                bin_max = r['packedBins']['min'] + r['packedBins']['size'] * bin_count
+                            else:
+                                bin_count = len(r['bins'])
+                                bin_min, bin_max = (r['bins'][0], r['bins'][-1])
+                            d = Distribution(hist=r['values'], bin_count=bin_count, bin_range=(bin_min, bin_max))                                                                                          
                             aim_run.track(d, name=k, step=step)
                         elif r['_type'] == 'plotly-file' or 'plotly.json' in r['path']:
                             path = r['path']
