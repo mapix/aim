@@ -13,7 +13,7 @@ from aim.ext.resource.log import LogLine
 from aim.ext.resource.configs import AIM_RESOURCE_METRIC_PREFIX
 
 
-def upload_artifacts(repo_inst, run, source):
+def upload_artifact(run, source):
     import requests
     files = {'file': open(source,'rb')}
     auth_info = None
@@ -26,7 +26,8 @@ def upload_artifacts(repo_inst, run, source):
                 ).decode('utf-8'))
     elif os.getenv('AIM_ACCESS_CREDENTIAL'):
         auth_info = os.getenv('AIM_ACCESS_CREDENTIAL')
-    endpoint = repo_inst.replace('aim://', 'https://') if repo_inst else 'http://localhost:1024'
+    
+    endpoint = 'http://localhost:1024' if run.repo.root_path.startswith('/') else f'https://{run.repo.root_path.replace.split(":")[0]}'
     r = requests.post(f'{endpoint}/artifacts/upload/{run.experiment}/{run.hash}', files=files, headers={'Authorization': auth_info})
     return r.json()['path']
     
@@ -115,16 +116,16 @@ def parse_wandb_logs(repo_inst, entity, project, run_id):
                                         continue
                                     if ele.get('_type') == 'image-file':
                                         embeded_image_file = os.path.join(prefix, ele['path'])
-                                        ele['path'] = upload_artifacts(repo_inst, aim_run, embeded_image_file)
+                                        ele['path'] = upload_artifact(aim_run, embeded_image_file)
                                     elif ele.get('_type') == 'molecule-file':
                                         embeded_molecule_file = os.path.join(prefix, ele['path'])
-                                        ele['path'] = upload_artifacts(repo_inst, aim_run, embeded_molecule_file)
+                                        ele['path'] = upload_artifact(aim_run, embeded_molecule_file)
                             table_content = json.dumps(table)
                             aim_run.track(Text(f'data:text/table,{table_content}'), name=k, step=step)  
                         elif r['_type'] == 'molecule-file':
                             path = r['path']
                             run.file(path).download(root=tmpdirname)
-                            artifact_path = upload_artifacts(repo_inst, aim_run, Path(tmpdirname) / path)
+                            artifact_path = upload_artifact(aim_run, Path(tmpdirname) / path)
                             aim_run.track(Text(f'data:text/molecule-file-url,{artifact_path}'), name=k, step=step)  
         
         with TemporaryDirectory() as tmpdirname:
